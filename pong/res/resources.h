@@ -1,0 +1,1 @@
+#define IDI_PONG_ICON  101
