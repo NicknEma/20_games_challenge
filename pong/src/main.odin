@@ -5,9 +5,7 @@ package pong
 **  - Better understand volume
 **
 ** - Polish
-**  - Use a better seed
 **  - Make score and pad height update in ready phase, not in blinking phase
-**  - Adjust gameplay constants (pad height mainly)
 **
 ** - Robustness
 **  - Use arenas on startup
@@ -22,6 +20,7 @@ import "base:runtime"
 import "base:intrinsics"
 
 import "core:fmt"; _ :: fmt
+import "core:time"
 import "core:math"
 import "core:math/rand"
 import "core:strings"
@@ -192,7 +191,8 @@ main :: proc() {
 		{
 			//- Init game state.
 			
-			state.ball_start_direction_entropy = rand.create(1);
+			_, _, seed := time.clock(time.now());
+			state.ball_start_direction_entropy = rand.create(u64(seed));
 			state.ball_box.half_size = 0.5 * BALL_SIZE;
 			state.ball_speed = BALL_START_SPEED;
 			
@@ -330,8 +330,6 @@ main :: proc() {
 						
 						if hit {
 							if solid.hit_action == .Player0_Scores || solid.hit_action == .Player1_Scores {
-								MAX_SCORE :: 999;
-								PAD_HEIGHT_DECREASE_AMOUNT :: 10;
 								
 								delta_position = clamped_delta_position;
 								
@@ -568,15 +566,18 @@ main :: proc() {
 
 //~ Gameplay.
 
+MAX_SCORE :: 999;
+
 BALL_SIZE             :: Vector2 { 10, 10 };
 BALL_START_SPEED      :: 3.0;
 BALL_SPEED_MULTIPLIER :: 1.1;
 BALL_SPEED_CAP        :: 6.4;
 
-PAD_X_OFFSET_FROM_CENTER :: 50;
-PAD_SIZE                 :: Vector2 { 10, 160 };
-PAD_MIN_SIZE_Y           :: 80;
-PAD_SPEED                :: 10;
+PAD_X_OFFSET_FROM_CENTER   :: 50;
+PAD_SIZE                   :: Vector2 { 10, 80 };
+PAD_MIN_SIZE_Y             :: 40;
+PAD_SPEED                  :: 10;
+PAD_HEIGHT_DECREASE_AMOUNT :: 5;
 
 SCREEN_BORDER_PADDING :: 20;
 
