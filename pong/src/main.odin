@@ -580,13 +580,13 @@ main :: proc() {
 
 MAX_SCORE :: 999;
 
-BALL_SIZE             :: Vector2 { 10, 10 };
+BALL_SIZE             :: Vector2 { 8, 8 };
 BALL_START_SPEED      :: 3.0;
 BALL_SPEED_MULTIPLIER :: 1.1;
 BALL_SPEED_CAP        :: 6.4;
 
 PAD_X_OFFSET_FROM_CENTER   :: 50;
-PAD_SIZE                   :: Vector2 { 10, 80 };
+PAD_SIZE                   :: Vector2 { 6, 80 };
 PAD_MIN_SIZE_Y             :: 40;
 PAD_SPEED                  :: 10;
 PAD_HEIGHT_DECREASE_AMOUNT :: 5;
