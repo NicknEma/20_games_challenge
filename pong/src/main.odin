@@ -5,7 +5,6 @@ package pong
 **  - Better understand volume
 **
 ** - Polish
-**  - Make score and pad height update in ready phase, not in blinking phase
 **
 ** - Robustness
 **  - Use arenas on startup
@@ -335,15 +334,17 @@ main :: proc() {
 								
 								restricted_start_directions : []Vector2;
 								if solid.hit_action == .Player0_Scores {
-									if state.score[0] < MAX_SCORE { state.score[0] += 1; }
+									// if state.score[0] < MAX_SCORE { state.score[0] += 1; }
 									restricted_start_directions = possible_start_directions[2:];
 									
-									state.pads[0].box.half_size.y = max(state.pads[0].box.half_size.y - PAD_HEIGHT_DECREASE_AMOUNT, 0.5*PAD_MIN_SIZE_Y);
+									state.index_of_player_who_scored = 0;
+									// state.pads[0].box.half_size.y = max(state.pads[0].box.half_size.y - PAD_HEIGHT_DECREASE_AMOUNT, 0.5*PAD_MIN_SIZE_Y);
 								} else {
-									if state.score[1] < MAX_SCORE { state.score[1] += 1; }
+									// if state.score[1] < MAX_SCORE { state.score[1] += 1; }
 									restricted_start_directions = possible_start_directions[:2];
 									
-									state.pads[1].box.half_size.y = max(state.pads[1].box.half_size.y - PAD_HEIGHT_DECREASE_AMOUNT, 0.5*PAD_MIN_SIZE_Y);
+									state.index_of_player_who_scored = 1;
+									// state.pads[1].box.half_size.y = max(state.pads[1].box.half_size.y - PAD_HEIGHT_DECREASE_AMOUNT, 0.5*PAD_MIN_SIZE_Y);
 								}
 								
 								state.ball_start_direction = rand.choice(restricted_start_directions, &state.ball_start_direction_entropy);
@@ -364,6 +365,17 @@ main :: proc() {
 				} else if state.gameplay_phase == .Ready {
 					if state.prev_gameplay_phase != state.gameplay_phase {
 						// First frame of this phase.
+						
+						{
+							// Update score and pad size for the player who scored.
+							
+							i := state.index_of_player_who_scored;
+							
+							if i >= 0 && i <= len(state.score) {
+								if state.score[i] < MAX_SCORE { state.score[i] += 1; }
+								state.pads[i].box.half_size.y = max(state.pads[i].box.half_size.y - PAD_HEIGHT_DECREASE_AMOUNT, 0.5*PAD_MIN_SIZE_Y);
+							}
+						}
 						
 						reset_board();
 						if use_audio { raylib.PlaySound(play_sound); }
@@ -609,6 +621,7 @@ setup_new_game :: proc() {
 	}
 	
 	state.score = {};
+	state.index_of_player_who_scored = -1;
 	
 	state.gameplay_phase = .Ready;
 	state.gameplay_phase_timer = gameplay_phase_durations[state.gameplay_phase];
@@ -650,6 +663,7 @@ Game_State :: struct {
 	pads : []Solid,
 	
 	score : [2]u64,
+	index_of_player_who_scored : int,
 	
 	gameplay_phase : Gameplay_Phase,
 	gameplay_phase_timer : f32,
