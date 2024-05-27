@@ -4,8 +4,6 @@ package pong
 ** - Audio
 **  - Better understand volume
 **
-** - Polish
-**
 ** - Robustness
 **  - Use arenas on startup
 */
@@ -113,37 +111,36 @@ main :: proc() {
 			// If a wave is invalid, IsWaveReady returns false; when a wave is invalid, LoadSoundFromWave returns a zeroed out struct, which means it doesn't have to be freed.
 			// It's likely that LoadSoundFromWave calls IsWaveReady, so there's no point in calling it ourselves except maybe inside an assert.
 			// Since the Sound struct doesn't have to be freed, we never call UnloadSound (we never free valid sounds as they last for the whole duration of the game).
-			// We only need to free the wave. BUT the wave needs to be valid, otherwise it's a programmer bug and that should never happen.
+			// We would only need to free the wave, in case could happen that it was invalid. BUT the wave needs to be valid, otherwise it's a programmer bug and that should never happen.
+			
+			samples_per_second := 48000;
+			bits_per_sample    := 16;
+			channel_count      := 2;
 			
 			//- Make the "bump" sound effect.
 			
 			env := Envelope {
-				attack_seconds  = 0.05,
-				decay_seconds   = 0.01,
-				release_seconds = 0.10,
+				attack_seconds    = 0.05,
+				decay_seconds     = 0.01,
+				release_seconds   = 0.10,
 				
 				sustain_amplitude = 0.50,
 				start_amplitude   = 1.00,
 			}
 			
 			sustain_seconds := 0.1;
-			seconds := env.attack_seconds + env.decay_seconds + sustain_seconds;
-			samples_per_second := 48000;
-			bits_per_sample := 16;
-			channel_count := 2;
-			{
-				wave, success := make_wave(seconds, samples_per_second, bits_per_sample, channel_count, .Triangle, env);
-				if success {
-					bump_sound = raylib.LoadSoundFromWave(wave);
-					assert(raylib.IsSoundReady(bump_sound));
-				} else {
-					assert(wave.data == nil); // The only allowed error (for now) is an allocation error. Anything else is due to bad argument values, which are a programmer bug.
-				}
+			seconds         := env.attack_seconds + env.decay_seconds + sustain_seconds;
+			
+			if wave, success := make_wave(seconds, samples_per_second, bits_per_sample, channel_count, .Triangle, env); success {
+				bump_sound = raylib.LoadSoundFromWave(wave);
+				assert(raylib.IsSoundReady(bump_sound));
+			} else {
+				assert(wave.data == nil); // The only allowed error is an allocation error. Anything else is due to bad argument values, which are a programmer bug.
 			}
 			
 			//- Make the "kill" sound effect.
 			
-			env.start_amplitude = 0.6;
+			env.start_amplitude   = 0.6;
 			env.sustain_amplitude = 1.0;
 			{
 				wave1, success1 := make_wave(seconds, samples_per_second, bits_per_sample, channel_count, .Triangle, env, 0.9);
@@ -154,34 +151,30 @@ main :: proc() {
 				
 				wave : raylib.Wave;
 				success := success1 && success2 && success3;
-				when true {
-					if success {
-						wave, success = concatenate_waves({ wave1, wave2, wave3 });
-					}
+				if success {
+					wave, success = concatenate_waves({ wave1, wave2, wave3 });
 				}
 				
 				if success {
 					kill_sound = raylib.LoadSoundFromWave(wave);
 					assert(raylib.IsSoundReady(kill_sound));
 				} else {
-					assert(wave.data == nil); // The only allowed error (for now) is an allocation error. Anything else is due to bad argument values, which are a programmer bug.
+					assert(wave.data == nil); // The only allowed error is an allocation error. Anything else is due to bad argument values, which are a programmer bug.
 				}
 			}
 			
 			//- Make the "play" sound effect.
 			
-			sustain_seconds = 0.15;
-			seconds = env.attack_seconds + env.decay_seconds + sustain_seconds;
-			env.start_amplitude = 0.8;
+			sustain_seconds       = 0.15;
+			seconds               = env.attack_seconds + env.decay_seconds + sustain_seconds;
+			env.start_amplitude   = 0.8;
 			env.sustain_amplitude = 0.4;
-			{
-				wave, success := make_wave(seconds, samples_per_second, bits_per_sample, channel_count, .Triangle, env, 3.0);
-				if success {
-					play_sound = raylib.LoadSoundFromWave(wave);
-					assert(raylib.IsSoundReady(play_sound));
-				} else {
-					assert(wave.data == nil); // The only allowed error (for now) is an allocation error. Anything else is due to bad argument values, which are a programmer bug.
-				}
+			
+			if wave, success := make_wave(seconds, samples_per_second, bits_per_sample, channel_count, .Triangle, env, 3.0); success {
+				play_sound = raylib.LoadSoundFromWave(wave);
+				assert(raylib.IsSoundReady(play_sound));
+			} else {
+				assert(wave.data == nil); // The only allowed error is an allocation error. Anything else is due to bad argument values, which are a programmer bug.
 			}
 		}
 		
@@ -264,7 +257,7 @@ main :: proc() {
 				{
 					// Move solids that can move.
 					
-					for &solid in state.all_solids {
+					#no_bounds_check for &solid in state.all_solids {
 						if raylib.IsKeyDown(solid.up_key) {
 							solid.box.position.y = solid.box.position.y + PAD_SPEED;
 							solid.box.position.y = min(solid.box.position.y, +0.5 * RENDER_HEIGHT - solid.box.half_size.y - SCREEN_BORDER_PADDING);
@@ -449,8 +442,8 @@ main :: proc() {
 			//~ Render.
 			
 			raylib.BeginDrawing();
-            raylib.ClearBackground(raylib.BLACK);
-            
+			raylib.ClearBackground(raylib.BLACK);
+			
 			FONT_SIZE    ::   50;
 			TEXT_SPACING ::   10;
 			
@@ -472,7 +465,7 @@ main :: proc() {
 				{
 					//- Render solids.
 					
-					for solid in state.all_solids {
+					#no_bounds_check for solid in state.all_solids {
 						render_position := Vector2 { solid.box.position.x, -solid.box.position.y };
 						
 						solid_rec : raylib.Rectangle;
@@ -532,7 +525,7 @@ main :: proc() {
 					TEXT_Y       :: -200;
 					TEXT_OFFSET  ::   50;
 					
-					for score_value, score_index in state.score {
+					#no_bounds_check for score_value, score_index in state.score {
 						side := (score_index * 2) - 1;
 						assert(side == -1 || side == 1);
 						
@@ -615,7 +608,7 @@ setup_new_game :: proc() {
 	state.ball_direction = state.ball_start_direction;
 	reset_board();
 	
-	for &pad in state.pads {
+	#no_bounds_check for &pad in state.pads {
 		pad.box.position.y  = 0;
 		pad.box.half_size.y = 0.5 * PAD_SIZE.y;
 	}
@@ -688,9 +681,7 @@ PAUSE_MENU_DEFAULT_ACTIVE_ITEM :: Pause_Menu_Item.Resume;
 draw_menu :: proc($Items: typeid, current: Items, font: raylib.Font, font_size, text_spacing: f32, vertical_offset: f32 = 0) where intrinsics.type_is_enum(Items) {
 	item_strings := cstring_slice_from_enum(Items, context.temp_allocator);
 	
-	// @Note: not marked as contextless because strings.unsafe_string_to_cstring() requires a context.
-	// @Todo: look at the source for unsafe_string_to_cstring() and inline it here if it doesn't actually use the context.
-	replace :: proc(cstr: ^cstring, old, new: byte) {
+	replace :: proc "contextless" (cstr: ^cstring, old, new: byte) {
 		str   := string(cstr^);
 		bytes := transmute([]byte) str;
 		
@@ -700,7 +691,13 @@ draw_menu :: proc($Items: typeid, current: Items, font: raylib.Font, font_size, 
 			}
 		}
 		
-		cstr^ = strings.unsafe_string_to_cstring(str);
+		cstr^ = unsafe_string_to_cstring_contextless(str);
+		
+		// @Copypaste from core:strings. The only (meaningful) difference is it being marked as contextless.
+		unsafe_string_to_cstring_contextless :: proc "contextless" (str: string) -> (res: cstring) {
+			d := transmute(runtime.Raw_String) str;
+			return cstring(d.data);
+		}
 	}
 	
 	#no_bounds_check for &item_string, item_index in item_strings {
@@ -1014,6 +1011,17 @@ make_wave :: proc(hold_seconds: f64, samples_per_second, bits_per_sample, channe
 	is_channel_count_valid :: proc(count: int) -> bool { return count == 1 || count == 2; }
 	
 	return wave, success;
+}
+
+make_sound :: proc(hold_seconds: f64, samples_per_second, bits_per_sample, channel_count: int, kind: Oscillator_Kind, envelope := DEFAULT_ENVELOPE, frequency_multiplier := 1.0) -> (sound: raylib.Sound, success: bool) #optional_ok {
+	wave := make_wave(hold_seconds, samples_per_second, bits_per_sample, channel_count, kind, envelope, frequency_multiplier) or_return;
+	sound = raylib.LoadSoundFromWave(wave);
+	
+	// If we got here, it means the arguments to make_wave() were valid and the wave allocation was successful.
+	// This means that the wave needs to be valid and playable by raylib, otherwise there's a bug in make_wave().
+	// Let's check for that:
+	assert(raylib.IsSoundReady(sound));
+	return sound, true;
 }
 
 allow_break :: proc "contextless" () { ; }
