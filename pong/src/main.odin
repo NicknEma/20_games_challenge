@@ -6,6 +6,12 @@ package pong
 **
 ** - Robustness
 **  - Use arenas on startup
+**
+** - Polish
+**  - Make a better icon
+**
+** - Features
+**  - Make PvE mode with artificial opponent
 */
 
 /* @Note: References used to make this game:
@@ -70,19 +76,6 @@ main :: proc() {
 			module_handle := windows.GetModuleHandleW(nil);
 			window_handle := cast(windows.HWND) raylib.GetWindowHandle();
 			icon_handle   := windows.LoadIconW(cast(windows.HANDLE) module_handle, windows.MAKEINTRESOURCEW(IDI_PONG_ICON));
-			
-			when false {
-				HRSRC :: distinct windows.HANDLE;
-				RT_ICON := MAKEINTRESOURCEA(3);
-				
-				MAKEINTRESOURCEA :: proc(#any_int i: int) -> windows.LPSTR { return cast(windows.LPSTR) cast(uintptr) cast(windows.ULONG_PTR) cast(windows.WORD) i; }
-				
-				@(default_calling_convention = "c") foreign {
-					FindResourceA :: proc(hModule: windows.HMODULE, lpName, lpType: windows.LPCSTR) -> HRSRC ---;
-				}
-				
-				icon := FindResourceA(module_handle, ICON, cstring(RT_ICON));
-			}
 			
 			windows.SendMessageW(window_handle, windows.WM_SETICON, ICON_SMALL, cast(windows.LPARAM) uintptr(icon_handle));
 			windows.SendMessageW(window_handle, windows.WM_SETICON, ICON_BIG,   cast(windows.LPARAM) uintptr(icon_handle));
