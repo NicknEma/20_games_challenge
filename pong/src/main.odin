@@ -28,6 +28,7 @@ import "core:math"
 import "core:math/rand"
 import "core:strings"
 import "core:reflect"
+import slices "core:slice"
 
 import "vendor:raylib"
 
@@ -35,29 +36,6 @@ import "core:sys/windows"
 
 RENDER_WIDTH  :: 800;
 RENDER_HEIGHT :: 600;
-
-Vector2 :: [2]f32
-
-Box2 :: struct {
-	position: Vector2,
-	half_size: Vector2,
-}
-
-Solid :: struct {
-	box: Box2,
-	color: raylib.Color,
-	
-	up_key,
-	down_key: raylib.KeyboardKey,
-	
-	hit_action: Hit_Action_Kind,
-}
-
-Hit_Action_Kind :: enum {
-	None,
-	Player0_Scores,
-	Player1_Scores,
-}
 
 main :: proc() {
 	raylib.InitWindow(RENDER_WIDTH, RENDER_HEIGHT, "Pong!");
@@ -182,16 +160,17 @@ main :: proc() {
 			state.ball_speed = BALL_START_SPEED;
 			
 			state.all_solids = {
-				{ {{ -RENDER_WIDTH / 2, 0 }, { SCREEN_BORDER_PADDING, RENDER_HEIGHT }}, raylib.BLANK, raylib.KeyboardKey.KEY_NULL, raylib.KeyboardKey.KEY_NULL, .Player1_Scores }, // left edge
-				{ {{ +RENDER_WIDTH / 2, 0 }, { SCREEN_BORDER_PADDING, RENDER_HEIGHT }}, raylib.BLANK, raylib.KeyboardKey.KEY_NULL, raylib.KeyboardKey.KEY_NULL, .Player0_Scores }, // right edge
-				{ {{ 0, +RENDER_HEIGHT / 2 }, { RENDER_WIDTH, SCREEN_BORDER_PADDING }}, raylib.BLANK, raylib.KeyboardKey.KEY_NULL, raylib.KeyboardKey.KEY_NULL, .None }, // top edge
-				{ {{ 0, -RENDER_HEIGHT / 2 }, { RENDER_WIDTH, SCREEN_BORDER_PADDING }}, raylib.BLANK, raylib.KeyboardKey.KEY_NULL, raylib.KeyboardKey.KEY_NULL, .None }, // bottom edge
+				{ {{ -0.5 *  RENDER_WIDTH, 0 }, { SCREEN_BORDER_PADDING, RENDER_HEIGHT }}, raylib.BLANK, raylib.KeyboardKey.KEY_NULL, raylib.KeyboardKey.KEY_NULL, .Player1_Scores, 0 }, // left edge
+				{ {{ +0.5 *  RENDER_WIDTH, 0 }, { SCREEN_BORDER_PADDING, RENDER_HEIGHT }}, raylib.BLANK, raylib.KeyboardKey.KEY_NULL, raylib.KeyboardKey.KEY_NULL, .Player0_Scores, 0 }, // right edge
+				{ {{ 0, +0.5 * RENDER_HEIGHT }, { RENDER_WIDTH,  SCREEN_BORDER_PADDING }}, raylib.BLANK, raylib.KeyboardKey.KEY_NULL, raylib.KeyboardKey.KEY_NULL, .None, 0 }, // top edge
+				{ {{ 0, -0.5 * RENDER_HEIGHT }, { RENDER_WIDTH,  SCREEN_BORDER_PADDING }}, raylib.BLANK, raylib.KeyboardKey.KEY_NULL, raylib.KeyboardKey.KEY_NULL, .None, 0 }, // bottom edge
 				
-				{ {{ -RENDER_WIDTH / 2 + PAD_X_OFFSET_FROM_CENTER, 0 }, 0.5 * PAD_SIZE}, raylib.WHITE, raylib.KeyboardKey.W,  raylib.KeyboardKey.S,    .None }, // left pad
-				{ {{ +RENDER_WIDTH / 2 - PAD_X_OFFSET_FROM_CENTER, 0 }, 0.5 * PAD_SIZE}, raylib.WHITE, raylib.KeyboardKey.UP, raylib.KeyboardKey.DOWN, .None }, // right pad
+				{ {{ +PAD_X_OFFSET_FROM_CENTER, 0 }, 0.5 * PAD_SIZE }, raylib.WHITE, PLAYER0_UP_KEY, PLAYER0_DOWN_KEY, .None, 0 }, // left pad
+				{ {{ -PAD_X_OFFSET_FROM_CENTER, 0 }, 0.5 * PAD_SIZE }, raylib.WHITE, PLAYER1_UP_KEY, PLAYER1_DOWN_KEY, .None, 0 }, // right pad
 			};
 			
-			state.pads  = state.all_solids[4:];
+			state.pads = state.all_solids[4:];
+			state.auto_pads = nil;
 			
 			setup_new_game();
 			
@@ -201,6 +180,8 @@ main :: proc() {
 		}
 		
 		pause_key := raylib.KeyboardKey.ESCAPE;
+		
+		ball_was_on_edge : bool;
 		
 		frame_counter := 0;
 		should_quit   := false;
@@ -233,7 +214,19 @@ main :: proc() {
 				if raylib.IsKeyPressed(raylib.KeyboardKey.ENTER) {
 					
 					switch state.start_menu_current_active_item {
-						case .Play_PVP: {
+						case .Play_PVP, .Play_PVE: {
+							if state.start_menu_current_active_item == .Play_PVP {
+								state.pads[1].up_key   = PLAYER1_UP_KEY;
+								state.pads[1].down_key = PLAYER1_DOWN_KEY;
+								
+								state.auto_pads = nil;
+							} else {
+								state.pads[1].up_key   = raylib.KeyboardKey.KEY_NULL;
+								state.pads[1].down_key = raylib.KeyboardKey.KEY_NULL;
+								
+								state.auto_pads = state.pads[1:2];
+							}
+							
 							state.mode = .Playing;
 							if use_audio { raylib.PlaySound(play_sound); }
 							
@@ -248,17 +241,86 @@ main :: proc() {
 				}
 				
 				{
-					// Move solids that can move.
+					// Move pads that can move.
 					
-					#no_bounds_check for &solid in state.all_solids {
-						if raylib.IsKeyDown(solid.up_key) {
-							solid.box.position.y = solid.box.position.y + PAD_SPEED;
-							solid.box.position.y = min(solid.box.position.y, +0.5 * RENDER_HEIGHT - solid.box.half_size.y - SCREEN_BORDER_PADDING);
-						}
+					#no_bounds_check for &pad in state.pads {
+						if raylib.IsKeyDown(pad.up_key)   { move_pad(&pad, +PAD_SPEED); }
+						if raylib.IsKeyDown(pad.down_key) { move_pad(&pad, -PAD_SPEED); }
+					}
+					
+					// Do virtual opponent movement.
+					
+					// 
+					
+					NUM_SECTIONS :: 16;
+					
+					board_width   := f32(RENDER_WIDTH - (2 * SCREEN_BORDER_PADDING));
+					section_width := board_width / NUM_SECTIONS;
+					
+					section_edges : [NUM_SECTIONS + 1]f32;
+					for &edge, i in section_edges {
+						j := f32(i) * board_width / f32(len(section_edges) - 1);
+						x := j - (0.5 * board_width);
 						
-						if raylib.IsKeyDown(solid.down_key) {
-							solid.box.position.y = solid.box.position.y - PAD_SPEED;
-							solid.box.position.y = max(solid.box.position.y, -0.5 * RENDER_HEIGHT + solid.box.half_size.y + SCREEN_BORDER_PADDING);
+						edge = x;
+					}
+					
+					bp := state.ball_box.position;
+					for edge in section_edges {
+						ball_size_x := 2 * state.ball_box.half_size.x;
+						if math.abs(bp.x - edge) < ball_size_x {
+							if !ball_was_on_edge {
+								
+								when false {
+									if edge != 0 { fmt.println("Now!") };
+									delta_position := state.ball_direction * state.ball_speed;
+									
+									for &pad in state.auto_pads {
+										// Predict future position of the ball (in an infinite space).
+										pad_ball_x_diff := pad.box.position.x - bp.x;
+										
+										// elongated_delta_position := delta_position * pad_ball_x_diff;
+										elongated_delta_position := delta_position * section_width;
+										
+										computed_future_ball_y := bp.y + elongated_delta_position.y;
+										
+										// Take bounces into account.
+										// @Todo: better bounces, right now it's just a clamp.
+										board_height := f32(RENDER_HEIGHT - (2 * SCREEN_BORDER_PADDING));
+										computed_future_ball_y = min(computed_future_ball_y,  board_height / 2);
+										computed_future_ball_y = max(computed_future_ball_y, -board_height / 2);
+										
+										pad.target_y = computed_future_ball_y;
+									}
+									
+									ball_was_on_edge = true;
+									break;
+								} else {
+									for &pad in state.auto_pads {
+										pad.target_y = bp.y;
+									}
+								}
+							}
+						} else {
+							ball_was_on_edge = false;
+						}
+					}
+					
+					// Automatically move pads towards their target position
+					for &pad in state.auto_pads {
+						delta_y   := pad.target_y - pad.box.position.y;
+						direction := math.sign(delta_y);
+						step      := direction * min(math.abs(delta_y), PAD_SPEED);
+						
+						move_pad(&pad, step);
+					}
+					
+					move_pad :: proc(pad : ^Solid, amount : f32) {
+						pad.box.position.y += amount;
+						if amount > 0 {
+							pad.box.position.y = min(pad.box.position.y, +0.5 * RENDER_HEIGHT - pad.box.half_size.y - SCREEN_BORDER_PADDING);
+						} else {
+							pad.box.position.y = max(pad.box.position.y, -0.5 * RENDER_HEIGHT + pad.box.half_size.y + SCREEN_BORDER_PADDING);
 						}
 					}
 				}
@@ -274,16 +336,61 @@ main :: proc() {
 					
 					delta_position        := state.ball_direction * state.ball_speed;
 					desired_ball_position := state.ball_box.position + delta_position;
+					/*
+					project_forwards :: proc(box: Box2, delta_position: Vector2, solids: []Solid) {
+						Sorted_Solid :: struct {
+							solid: ^Solid,
+							value: f32,
+						}
+						
+						sorted_solids := make([dynamic]Sorted_Solid, context.temp_allocator);
+						
+						for &solid in solids {
+							distance := box2_distance(box, solid.box);
+							
+							sorted_solid := Sorted_Solid { &solid, length_squared(distance) };
+							append(&sorted_solids, sorted_solid);
+						}
+						
+						slices.sort_by(sorted_solids[:], proc(a, b: Sorted_Solid) -> bool { return a.value < b.value; });
+						
+						clamped_delta_position := delta_position;
+						reflect_delta_position := delta_position;
+						direction_signs        := Vector2 { 1, 1 };
+						
+						desired_box_position   := box.position + delta_position;
+						
+						for solid in sorted_solids {
+							hit := false;
+							
+							distance := box2_distance(state.ball_box, solid.box);
+							signed_center_diff := solid.box.position.x - box.position;
+							
+							for _, x in Vector2{} {
+								y := (x + 1) & 2;
+								
+								if distance[x] < math.abs(delta_position[x]) && signed_center_diff[x] * delta_position[x] > 0 && boxes_intersect(solid.box.position, solid.box.half_size, desired_box_position, box.half_size) {
+									excess := math.abs(delta_position[x]) - distance[x];
+									excess *= math.sign(delta_position[x]);
+									
+									clamped_delta_position[x] = math.sign(signed_center_diff[x])*distance[x];
+									clamped_delta_position[y] = (clamped_delta_position[x] * delta_position[y]) / delta_position[x];
+									reflect_delta_position[x] = math.sign(signed_center_diff[x])*distance[x] - excess;
+									
+									direction_signs[x] *= -1;
+									hit = true;
+								}
+							}
+							
+						}
+					}
+					*/
 					
 					for solid, solid_index in state.all_solids {
 						hit := false;
 						clamped_delta_position := delta_position;
 						
-						distance : Vector2;
-						distance.x = min(math.abs(state.ball_box.position.x + state.ball_box.half_size.x - (solid.box.position.x - solid.box.half_size.x)),
-										 math.abs(state.ball_box.position.x - state.ball_box.half_size.x - (solid.box.position.x + solid.box.half_size.x)));
-						distance.y = min(math.abs(state.ball_box.position.y + state.ball_box.half_size.y - (solid.box.position.y - solid.box.half_size.y)),
-										 math.abs(state.ball_box.position.y - state.ball_box.half_size.y - (solid.box.position.y + solid.box.half_size.y)));
+						distance := box2_distance(state.ball_box, solid.box);
 						
 						signed_center_diff : Vector2;
 						signed_center_diff.x = solid.box.position.x - state.ball_box.position.x;
@@ -320,17 +427,11 @@ main :: proc() {
 								
 								restricted_start_directions : []Vector2;
 								if solid.hit_action == .Player0_Scores {
-									// if state.score[0] < MAX_SCORE { state.score[0] += 1; }
 									restricted_start_directions = possible_start_directions[2:];
-									
 									state.index_of_player_who_scored = 0;
-									// state.pads[0].box.half_size.y = max(state.pads[0].box.half_size.y - PAD_HEIGHT_DECREASE_AMOUNT, 0.5*PAD_MIN_SIZE_Y);
 								} else {
-									// if state.score[1] < MAX_SCORE { state.score[1] += 1; }
 									restricted_start_directions = possible_start_directions[:2];
-									
 									state.index_of_player_who_scored = 1;
-									// state.pads[1].box.half_size.y = max(state.pads[1].box.half_size.y - PAD_HEIGHT_DECREASE_AMOUNT, 0.5*PAD_MIN_SIZE_Y);
 								}
 								
 								state.ball_start_direction = rand.choice(restricted_start_directions, &state.ball_start_direction_entropy);
@@ -564,20 +665,52 @@ main :: proc() {
 
 //~ Gameplay.
 
-MAX_SCORE :: 999;
+Vector2 :: [2]f32
 
-BALL_SIZE             :: Vector2 { 8, 8 };
-BALL_START_SPEED      :: 3.0;
-BALL_SPEED_MULTIPLIER :: 1.1;
-BALL_SPEED_CAP        :: 6.4;
+Box2 :: struct {
+	position: Vector2,
+	half_size: Vector2,
+}
 
-PAD_X_OFFSET_FROM_CENTER   :: 50;
+Solid :: struct {
+	box: Box2,
+	color: raylib.Color,
+	
+	up_key,
+	down_key: raylib.KeyboardKey,
+	
+	hit_action: Hit_Action_Kind,
+	
+	target_y: f32,
+}
+
+Hit_Action_Kind :: enum {
+	None,
+	Player0_Scores,
+	Player1_Scores,
+}
+
+MAX_SCORE                  :: 999;
+
+BALL_SIZE                  :: Vector2 { 8, 8 };
+BALL_START_SPEED           :: 3.0;
+BALL_SPEED_MULTIPLIER      :: 1.1; // Increasing factor of the ball speed every time it bounces off of a surface
+BALL_SPEED_CAP             :: 6.4;
+
 PAD_SIZE                   :: Vector2 { 6, 80 };
 PAD_MIN_SIZE_Y             :: 40;
-PAD_SPEED                  :: 10;
 PAD_HEIGHT_DECREASE_AMOUNT :: 5;
+PAD_SPEED                  :: 10;
+PAD_X_OFFSET_FROM_BORDER   :: 50;
+PAD_X_OFFSET_FROM_CENTER   :: (-RENDER_WIDTH / 2) + PAD_X_OFFSET_FROM_BORDER;
 
-SCREEN_BORDER_PADDING :: 20;
+PLAYER0_UP_KEY             :: raylib.KeyboardKey.W;
+PLAYER0_DOWN_KEY           :: raylib.KeyboardKey.S;
+
+PLAYER1_UP_KEY             :: raylib.KeyboardKey.UP;
+PLAYER1_DOWN_KEY           :: raylib.KeyboardKey.DOWN;
+
+SCREEN_BORDER_PADDING      :: 20;
 
 gameplay_phase_durations := [len(Gameplay_Phase)]f32 {
 	Gameplay_Phase.Ready    =  1.0,
@@ -591,6 +724,42 @@ possible_start_directions := [?]Vector2 {
 	{ -1, +1 },
 	{ -1, -1 },
 };
+
+boxes_intersect :: proc "contextless" (p1, h1, p2, h2: Vector2) -> bool {
+	res_x  := (math.abs(p1.x - p2.x) < h1.x + h2.x);
+	res_y  := (math.abs(p1.y - p2.y) < h1.y + h2.y);
+	
+	result := res_x && res_y;
+	return result;
+}
+
+dot :: proc "contextless" (u, w: Vector2) -> (d: f32) {
+	return u.x * w.x + u.y * w.y;
+}
+
+length_squared :: proc "contextless" (v: Vector2) -> (l: f32) {
+	return dot(v, v);
+}
+
+box2_distance :: proc(b1, b2: Box2) -> (distance: Vector2) {
+	b1_r := b1.position.x + b1.half_size.x;
+	b1_l := b1.position.x - b1.half_size.x;
+	b2_r := b2.position.x + b2.half_size.x;
+	b2_l := b2.position.x - b2.half_size.x;
+	
+	b1_t := b1.position.y + b1.half_size.y;
+	b1_b := b1.position.y - b1.half_size.y;
+	b2_t := b2.position.y + b2.half_size.y;
+	b2_b := b2.position.y - b2.half_size.y;
+	
+	distance.x = min(math.abs(b1_r - b2_l),
+					 math.abs(b1_l - b2_r));
+	
+	distance.y = min(math.abs(b1_t - b2_b),
+					 math.abs(b1_b - b2_t));
+	
+	return distance;
+}
 
 //~ State management.
 
@@ -647,6 +816,7 @@ Game_State :: struct {
 	
 	all_solids : []Solid,
 	pads : []Solid,
+	auto_pads : []Solid,
 	
 	score : [2]u64,
 	index_of_player_who_scored : int,
@@ -665,7 +835,7 @@ Game_State :: struct {
 
 //~ Start and Pause menus.
 
-Start_Menu_Item :: enum { Play_PVP, Quit, }
+Start_Menu_Item :: enum { Play_PVP, Play_PVE, Quit, }
 Pause_Menu_Item :: enum { Resume, Restart, Quit, }
 
 START_MENU_DEFAULT_ACTIVE_ITEM :: Start_Menu_Item.Play_PVP;
@@ -773,14 +943,6 @@ increment_enum :: proc "contextless" (value: ^$T, amount := 1) where intrinsics.
 	for i < 0     do i += n;
 	v  = cast(T) i;
 	value^ = v;
-}
-
-boxes_intersect :: proc "contextless" (p1, h1, p2, h2: [2]f32) -> bool {
-	res_x  := (math.abs(p1.x - p2.x) < h1.x + h2.x);
-	res_y  := (math.abs(p1.y - p2.y) < h1.y + h2.y);
-	
-	result := res_x && res_y;
-	return result;
 }
 
 //~ Sound synthesis.
